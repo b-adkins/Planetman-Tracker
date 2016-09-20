@@ -73,8 +73,8 @@ while True:
     thresh = fgmask
 #    thresh = cv2.threshold(fgmask, 0, 255, cv2.THRESH_BINARY)[1]  # Remove shadows
  
-    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_CLOSE, np.ones((2,2),np.uint8))
-    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_OPEN, np.ones((2,2),np.uint8))
+    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_CLOSE, np.ones((3, 3),np.uint8))
+#    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_OPEN, np.ones((3, 3),np.uint8))
     
     
     # find contours processed black-and-white image
@@ -92,7 +92,7 @@ while True:
         # and update the text
         (x, y, w, h) = cv2.boundingRect(c)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.drawContours(frame,[c],0,(0,0,255),2)
+        cv2.drawContours(frame, [c], 0, (0, 0, 255), 1)
         cv2.putText(frame, "{}={}x{}".format(a, w, h), (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 255), 1)
         
     # show the frame
