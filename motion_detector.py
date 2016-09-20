@@ -14,10 +14,14 @@ cv2.ocl.setUseOpenCL(False)
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", help="path to the video file")
 ap.add_argument("-a", "--area", default='500:', help="min:max, e.g. 200:500. Either can be blank")
+ap.add_argument("-r", "--aspect_ratio", default='0.5, 0.9', help="min,max")
 args = vars(ap.parse_args())
 area_min, area_max = args['area'].split(':')
 area_min = int(area_min) if area_min else 0
 area_max = int(area_max) if area_max else 1e5
+aspect_min, aspect_max = args['aspect_ratio'].split(',')
+aspect_min = float(aspect_min)
+aspect_max = float(aspect_max)
  
 # if the video argument is None, then we are reading from webcam
 if args.get("video", None) is None:
@@ -83,14 +87,20 @@ while True:
  
     # loop over the contours
     for c in cnts:
-        # if the contour is too small, ignore it
         a = cv2.contourArea(c)
+        (x, y, w, h) = cv2.boundingRect(c)
+
+        # Filter by size
         if a < area_min or a > area_max:
+            continue
+        
+        # Filter by aspect ratio
+        aspect_ratio = float(w)/h
+        if aspect_ratio < aspect_min or aspect_ratio > aspect_max:
             continue
  
         # compute the bounding box for the contour, draw it on the frame,
         # and update the text
-        (x, y, w, h) = cv2.boundingRect(c)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.drawContours(frame, [c], 0, (0, 0, 255), 1)
         cv2.putText(frame, "{}={}x{}".format(a, w, h), (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 255), 1)
