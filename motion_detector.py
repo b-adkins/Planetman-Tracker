@@ -40,7 +40,7 @@ if not camera.isOpened():
 #fgbg = cv2.createBackgroundSubtractorMOG2()
 fgbg = cv2.createBackgroundSubtractorKNN()
  
-# Initialize camshift
+# Initialize mean/camshift
 def calcHistOfContour(frame, contour):
     # Bounding rectangle
     c, r, w, h = cv2.boundingRect(contour)
@@ -57,6 +57,15 @@ def calcHistOfContour(frame, contour):
     return roi_hist
 
 roi_hist = None
+meanshift_window = None
+
+# Initialize Kalman filter
+kalman = cv2.KalmanFilter(4,4)
+kalman.measurementMatrix = np.array([[1,0,0,0],[0,1,0,0], [1,0,0,0],[0,1,0,0]], np.float32)
+kalman.transitionMatrix = np.array([[1,0,1,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]],np.float32)
+kalman.processNoiseCov = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],np.float32) * 0.03
+measurements = np.zeros([4, 1], np.float32)
+state = np.zeros([4, 1], np.float32)
 
 # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
 term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
@@ -128,17 +137,38 @@ while True:
         if roi_hist is None:
             roi_hist = calcHistOfContour(normed_illum, c)
             track_window = (x, y, w, h)
+            track_contour = c
 
     if roi_hist is not None:
         # Run meanshift
         hsv = cv2.cvtColor(normed_illum, cv2.COLOR_BGR2HSV)
         dst = cv2.calcBackProject([hsv], [0], roi_hist, [0,180], 1)
-        ret, track_window = cv2.meanShift(dst, track_window, term_crit)
+        cv2.imshow("Histogram Backproject", dst)
+        ret, meanshift_window = cv2.meanShift(dst, track_window, term_crit)
         if ret:
-            x, y, w,h = track_window
+            x, y, w, h = meanshift_window
             cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2) 
         else:
             roi_hist = None
+            state = np.zeros((4, 1), np.float32)
+            
+    # Update Kalman filter
+    measurements = np.zeros((4, 1), np.float32)
+    if roi_hist is not None:
+        # Centroid of background subtraction contour
+        M = cv2.moments(track_contour)
+        cx = int(M['m10']/M['m00'])
+        cy = int(M['m01']/M['m00'])
+        measurements[0] = cx
+        measurements[1] = cy
+    if meanshift_window is not None:
+        # Meanshift center
+        measurements[2] = x + w/2
+        measurements[3] = y + h/2
+    kalman.correct(measurements)
+    state = kalman.predict()
+    print state
+    cv2.circle(frame, (int(state[0]), int(state[1])), 2, (0, 255, 255), -1)
         
     # show the frame
     cv2.imshow("Video Feed", frame)
