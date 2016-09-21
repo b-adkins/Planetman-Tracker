@@ -113,19 +113,27 @@ while True:
     im_cnt, cnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_LIST,
         cv2.CHAIN_APPROX_SIMPLE)
  
-    # loop over the contours
-    for c in cnts:   
+    def contourOk(c):
         a = cv2.contourArea(c)
         (x, y, w, h) = cv2.boundingRect(c)
 
         # Filter by size
         if a < area_min or a > area_max:
-            continue
-        
+            return False        
         # Filter by aspect ratio
         aspect_ratio = float(w)/h
         if aspect_ratio < aspect_min or aspect_ratio > aspect_max:
-            continue
+            return False
+            
+        return True
+            
+    # Filter contours
+    cnts = [c for c in cnts if contourOk(c)]
+            
+    # loop over the contours
+    for c in cnts:            
+        a = cv2.contourArea(c)
+        (x, y, w, h) = cv2.boundingRect(c)
  
         # compute the bounding box for the contour, draw it on the frame,
         # and update the text
@@ -136,24 +144,29 @@ while True:
         # Lazy initialize mean shift tracker on first contour
         if roi_hist is None:
             roi_hist = calcHistOfContour(normed_illum, c)
-            track_window = (x, y, w, h)
+            meanshift_window = (x, y, w, h)
             track_contour = c
 
     if roi_hist is not None:
         # Run meanshift
         hsv = cv2.cvtColor(normed_illum, cv2.COLOR_BGR2HSV)
         dst = cv2.calcBackProject([hsv], [0], roi_hist, [0,180], 1)
-        cv2.imshow("Histogram Backproject", dst)
-        ret, meanshift_window = cv2.meanShift(dst, track_window, term_crit)
+        #cv2.imshow("Histogram Backproject", dst)
+        ret, meanshift_window = cv2.meanShift(dst, meanshift_window, term_crit)
         if ret:
             x, y, w, h = meanshift_window
             cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2) 
         else:
             roi_hist = None
             state = np.zeros((4, 1), np.float32)
+        
+        # Use contour closest to current state
+        if cnts:
+            dist = [np.sqrt((state[1] - y)**2 + (state[0] - x)**2) for x, y, _, _ in [cv2.boundingRect(c) for c in cnts]]
+            track_contour = cnts[np.argmin(dist)]
             
     # Update Kalman filter
-    measurements = np.zeros((4, 1), np.float32)
+    # measurements = np.zeros((4, 1), np.float32)
     if roi_hist is not None:
         # Centroid of background subtraction contour
         M = cv2.moments(track_contour)
@@ -167,15 +180,15 @@ while True:
         measurements[3] = y + h/2
     kalman.correct(measurements)
     state = kalman.predict()
-    print state
-    cv2.circle(frame, (int(state[0]), int(state[1])), 2, (0, 255, 255), -1)
+    print measurements[:, 0], state[:, 0].astype(np.int)
+    cv2.circle(frame, (int(state[0]), int(state[1])), 4, (0, 255, 255), -1)
         
     # show the frame
     cv2.imshow("Video Feed", frame)
 #    cv2.imshow("Illumination normalized", normed_illum)
-    cv2.imshow("Color normalized", normed)
-    cv2.imshow('Background subtraction', fgmask)
-    cv2.imshow("Thresh", thresh)
+#    cv2.imshow("Color normalized", normed)
+#    cv2.imshow('Background subtraction', fgmask)
+#    cv2.imshow("Thresh", thresh)
 
     # if the `q` key is pressed, break from the lop
     key = cv2.waitKey(1) & 0xFF
