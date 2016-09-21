@@ -41,13 +41,19 @@ if not camera.isOpened():
 fgbg = cv2.createBackgroundSubtractorKNN()
  
 # Initialize camshift
-def calcHistOfRect(frame, r, c, h, w):
+def calcHistOfContour(frame, contour):
+    # Bounding rectangle
+    c, r, w, h = cv2.boundingRect(contour)
     roi = frame[r:r+h, c:c+w]
     hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
-    # print mask
-    roi_hist = cv2.calcHist([hsv_roi],[0],mask,[180],[0,180])
-    cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
+    
+    # Create exact mask
+    mask = np.zeros(frame[:, :, 0].shape, np.uint8)
+    cv2.drawContours(mask, [contour], -1, (255), -1)
+    mask = mask[r:r+h, c:c+w]
+    cv2.imshow("mask", mask)
+    roi_hist = cv2.calcHist([hsv_roi], [0], mask, [180], [0,180])
+    cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     return roi_hist
 
 roi_hist = None
@@ -120,7 +126,7 @@ while True:
         
         # Lazy initialize mean shift tracker on first contour
         if roi_hist is None:
-            roi_hist = calcHistOfRect(normed_illum, y, x, h, w)
+            roi_hist = calcHistOfContour(normed_illum, c)
             track_window = (x, y, w, h)
 
     if roi_hist is not None:
