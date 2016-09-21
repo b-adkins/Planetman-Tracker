@@ -36,14 +36,26 @@ if not camera.isOpened():
     print "Unable to open video source"
     sys.exit()
     
-# initialize the first frame in the video stream
-firstFrame = None
-
 # initialize a Gaussian Mixture-based Background/Foreground Segmentation Algorithm
 #fgbg = cv2.createBackgroundSubtractorMOG2()
 fgbg = cv2.createBackgroundSubtractorKNN()
  
+# Initialize camshift
+def calcHistOfRect(frame, r, c, h, w):
+    roi = frame[r:r+h, c:c+w]
+    hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv_roi, np.array((0., 60.,32.)), np.array((180.,255.,255.)))
+    # print mask
+    roi_hist = cv2.calcHist([hsv_roi],[0],mask,[180],[0,180])
+    cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
+    return roi_hist
 
+roi_hist = None
+
+# Setup the termination criteria, either 10 iteration or move by atleast 1 pt
+term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
+ 
+    
 # loop over the frames of the video
 while True:
     # grab the current frame and initialize the occupied/unoccupied
@@ -59,21 +71,21 @@ while True:
     frame = imutils.resize(raw_frame, width=512)
     
     # Illumination normalization
-    normed = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    frame_lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(40, 40))
-    normed[:, :, 0] = cv2.equalizeHist(normed[:, :, 0]) # Global
-#    normed[:, :, 0] = clahe.apply(normed[:, :, 0]) # Local
-#    normed[:, :, 0] = 60* np.ones(normed[:, :, 0].shape, np.uint8)
+    normed_illum = frame_lab.copy()
+    normed_illum[:, :, 0] = cv2.equalizeHist(normed_illum[:, :, 0]) # Global
+#    normed_illum[:, :, 0] = clahe.apply(normed_illum[:, :, 0]) # Local
+    normed_illum = cv2.cvtColor(normed_illum, cv2.COLOR_LAB2BGR)
+#    normed_illum = cv2.GaussianBlur(normed_illum, (9, 9), 0)
+    
+    # Color normalizaiton
+    normed = frame_lab.copy()
+    normed[:, :, 0] = 60* np.ones(normed[:, :, 0].shape, np.uint8)
     normed = cv2.cvtColor(normed, cv2.COLOR_LAB2BGR)
-#    normed = cv2.GaussianBlur(normed, (9, 9), 0)
- 
-    # if the first frame is None, initialize it
-    if firstFrame is None:
-        firstFrame = normed
-        continue
         
     # Adds the fgmask
-    fgmask = fgbg.apply(normed)
+    fgmask = fgbg.apply(normed_illum)
     thresh = fgmask
 #    thresh = cv2.threshold(fgmask, 0, 255, cv2.THRESH_BINARY)[1]  # Remove shadows
  
@@ -82,11 +94,12 @@ while True:
     
     
     # find contours processed black-and-white image
+        # Canny edge detection may be useful later
     im_cnt, cnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_LIST,
         cv2.CHAIN_APPROX_SIMPLE)
  
     # loop over the contours
-    for c in cnts:
+    for c in cnts:   
         a = cv2.contourArea(c)
         (x, y, w, h) = cv2.boundingRect(c)
 
@@ -105,9 +118,26 @@ while True:
         cv2.drawContours(frame, [c], 0, (0, 0, 255), 1)
         cv2.putText(frame, "{}={}x{}".format(a, w, h), (x, y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 255), 1)
         
+        # Lazy initialize mean shift tracker on first contour
+        if roi_hist is None:
+            roi_hist = calcHistOfRect(normed_illum, y, x, h, w)
+            track_window = (x, y, w, h)
+
+    if roi_hist is not None:
+        # Run meanshift
+        hsv = cv2.cvtColor(normed_illum, cv2.COLOR_BGR2HSV)
+        dst = cv2.calcBackProject([hsv], [0], roi_hist, [0,180], 1)
+        ret, track_window = cv2.meanShift(dst, track_window, term_crit)
+        if ret:
+            x, y, w,h = track_window
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2) 
+        else:
+            roi_hist = None
+        
     # show the frame
     cv2.imshow("Video Feed", frame)
-    cv2.imshow("Illumination normalized", normed)
+#    cv2.imshow("Illumination normalized", normed_illum)
+    cv2.imshow("Color normalized", normed)
     cv2.imshow('Background subtraction', fgmask)
     cv2.imshow("Thresh", thresh)
 
