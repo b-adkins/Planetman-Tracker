@@ -107,7 +107,16 @@ while True:
     thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_CLOSE, np.ones((3, 3),np.uint8))
 #    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_OPEN, np.ones((3, 3),np.uint8))
     
-    
+    # If there's a state estimate, only look near it
+    if np.any(state):
+        mask_look_here = np.zeros(frame[:, :, 0].shape, np.uint8)
+        cv2.rectangle(mask_look_here, (state[0] - meanshift_window[2], state[1] - meanshift_window[3]), 
+            (state[0] + meanshift_window[2], state[1] + meanshift_window[3]), (255), -1)
+        x, y, w, h = cv2.boundingRect(track_contour)
+        cv2.rectangle(mask_look_here, (x - w, y - h), (x + 2*w, y + 2*h), (255), -1)
+    else:
+        mask_look_here = 255 * np.ones(frame[:, :, 0].shape, np.uint8)
+
     # find contours processed black-and-white image
         # Canny edge detection may be useful later
     im_cnt, cnts, hierarchy = cv2.findContours(thresh.copy(), cv2.RETR_LIST,
@@ -151,7 +160,8 @@ while True:
         # Run meanshift
         hsv = cv2.cvtColor(normed_illum, cv2.COLOR_BGR2HSV)
         dst = cv2.calcBackProject([hsv], [0], roi_hist, [0,180], 1)
-        #cv2.imshow("Histogram Backproject", dst)
+        dst = cv2.bitwise_and(dst, dst, mask=mask_look_here)
+        cv2.imshow("Histogram Backproject", dst)
         ret, meanshift_window = cv2.meanShift(dst, meanshift_window, term_crit)
         if ret:
             x, y, w, h = meanshift_window
