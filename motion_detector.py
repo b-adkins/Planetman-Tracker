@@ -63,7 +63,8 @@ meanshift_window = None
 kalman = cv2.KalmanFilter(4,4)
 kalman.measurementMatrix = np.array([[1,0,0,0],[0,1,0,0], [1,0,0,0],[0,1,0,0]], np.float32)
 kalman.transitionMatrix = np.array([[1,0,1,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]],np.float32)
-kalman.processNoiseCov = np.array([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],np.float32) * 0.03
+kalman.processNoiseCov = np.array([[1,0,0.2,0],[0,1,0,0.2],[0.2,0,1,0],[0,0.2,0,1]],np.float32) * 0.03
+kalman.measurementNoiseCov = np.array([[1, 0.5, 0, 0], [0.5, 1, 0, 0], [1, 0.5, 0, 0], [0.5, 1, 0, 0]], np.float32) * 0.2
 measurements = np.zeros([4, 1], np.float32)
 state = np.zeros([4, 1], np.float32)
 
@@ -92,7 +93,7 @@ while True:
     normed_illum[:, :, 0] = cv2.equalizeHist(normed_illum[:, :, 0]) # Global
 #    normed_illum[:, :, 0] = clahe.apply(normed_illum[:, :, 0]) # Local
     normed_illum = cv2.cvtColor(normed_illum, cv2.COLOR_LAB2BGR)
-#    normed_illum = cv2.GaussianBlur(normed_illum, (9, 9), 0)
+    normed_illum = cv2.GaussianBlur(normed_illum, (9, 9), 0)
     
     # Color normalizaiton
     normed = frame_lab.copy()
@@ -172,7 +173,10 @@ while True:
         
         # Use contour closest to current state
         if cnts:
+            x, y, w, h = meanshift_window
             dist = [np.sqrt((state[1] - y)**2 + (state[0] - x)**2) for x, y, _, _ in [cv2.boundingRect(c) for c in cnts]]
+            # if roi_hist is not None:  # I.e. meanshift didn't lose them
+            #     dist = [d if d < 1.5 * np.sqrt(w**2 + h**2) else 1e3 for d in dist]  # Eliminate those that are too far away
             track_contour = cnts[np.argmin(dist)]
             
     # Update Kalman filter
@@ -198,7 +202,7 @@ while True:
 #    cv2.imshow("Illumination normalized", normed_illum)
 #    cv2.imshow("Color normalized", normed)
 #    cv2.imshow('Background subtraction', fgmask)
-#    cv2.imshow("Thresh", thresh)
+    cv2.imshow("Thresh", thresh)
 
     # if the `q` key is pressed, break from the lop
     key = cv2.waitKey(1) & 0xFF
