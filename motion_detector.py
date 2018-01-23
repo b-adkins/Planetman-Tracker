@@ -5,8 +5,10 @@ import numpy as np
 import sys
 import time
 
-import imutils
 import cv2
+
+import imutils
+import tracking
  
 cv2.ocl.setUseOpenCL(False)
  
@@ -14,7 +16,7 @@ cv2.ocl.setUseOpenCL(False)
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", help="path to the video file")
 ap.add_argument("-a", "--area", default='500:', help="min:max, e.g. 200:500. Either can be blank")
-ap.add_argument("-r", "--aspect_ratio", default='0.5, 0.9', help="min,max")
+ap.add_argument("-r", "--aspect_ratio", default='0.5,0.9', help="min,max")
 args = vars(ap.parse_args())
 area_min, area_max = args['area'].split(':')
 area_min = int(area_min) if area_min else 0
@@ -59,18 +61,13 @@ def calcHistOfContour(frame, contour):
 roi_hist = None
 meanshift_window = None
 
-# Initialize Kalman filter
-kalman = cv2.KalmanFilter(4,4)
-kalman.measurementMatrix = np.array([[1,0,0,0],[0,1,0,0], [1,0,0,0],[0,1,0,0]], np.float32)
-kalman.transitionMatrix = np.array([[1,0,1,0],[0,1,0,1],[0,0,1,0],[0,0,0,1]],np.float32)
-kalman.processNoiseCov = np.array([[1,0,0.2,0],[0,1,0,0.2],[0.2,0,1,0],[0,0.2,0,1]],np.float32) * 0.03
-kalman.measurementNoiseCov = np.array([[1, 0.5, 0, 0], [0.5, 1, 0, 0], [1, 0.5, 0, 0], [0.5, 1, 0, 0]], np.float32) * 0.2
-measurements = np.zeros([4, 1], np.float32)
-state = np.zeros([4, 1], np.float32)
-
 # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
 term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
- 
+    
+
+# Tracked objects
+tracks = []
+measurements = np.zeros([4, 1], np.float32)
     
 # loop over the frames of the video
 while True:
@@ -105,14 +102,16 @@ while True:
     thresh = fgmask
 #    thresh = cv2.threshold(fgmask, 0, 255, cv2.THRESH_BINARY)[1]  # Remove shadows
  
-    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_CLOSE, np.ones((3, 3),np.uint8))
+    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_CLOSE, np.ones((2, 2),np.uint8))
 #    thresh = cv2.morphologyEx(thresh.copy(), cv2.MORPH_OPEN, np.ones((3, 3),np.uint8))
     
-    # If there's a state estimate, only look near it
-    if np.any(state):
+    # If there's a contact, only look near it
+    if False:
+    #if np.any(tracks):
+        track = tracks[0]
         mask_look_here = np.zeros(frame[:, :, 0].shape, np.uint8)
-        cv2.rectangle(mask_look_here, (state[0] - meanshift_window[2], state[1] - meanshift_window[3]), 
-            (state[0] + meanshift_window[2], state[1] + meanshift_window[3]), (255), -1)
+        cv2.rectangle(mask_look_here, (track.state[0] - meanshift_window[2], track.state[1] - meanshift_window[3]), 
+            (track.state[0] + meanshift_window[2], track.state[1] + meanshift_window[3]), (255), -1)
         x, y, w, h = cv2.boundingRect(track_contour)
         cv2.rectangle(mask_look_here, (x - w, y - h), (x + 2*w, y + 2*h), (255), -1)
     else:
@@ -136,10 +135,10 @@ while True:
             return False
             
         return True
-            
+        
     # Filter contours
     cnts = [c for c in cnts if contourOk(c)]
-            
+
     # loop over the contours
     for c in cnts:            
         a = cv2.contourArea(c)
@@ -173,6 +172,11 @@ while True:
         
         # Use contour closest to current state
         if cnts:
+            if tracks:
+                state = tracks[0].state
+            else:
+                state = np.zeros((4, 1), np.float32)
+        
             x, y, w, h = meanshift_window
             dist = [np.sqrt((state[1] - y)**2 + (state[0] - x)**2) for x, y, _, _ in [cv2.boundingRect(c) for c in cnts]]
             # if roi_hist is not None:  # I.e. meanshift didn't lose them
@@ -180,7 +184,6 @@ while True:
             track_contour = cnts[np.argmin(dist)]
             
     # Update Kalman filter
-    # measurements = np.zeros((4, 1), np.float32)
     if roi_hist is not None:
         # Centroid of background subtraction contour
         M = cv2.moments(track_contour)
@@ -192,10 +195,16 @@ while True:
         # Meanshift center
         measurements[2] = x + w/2
         measurements[3] = y + h/2
-    kalman.correct(measurements)
-    state = kalman.predict()
-    print measurements[:, 0], state[:, 0].astype(np.int)
-    cv2.circle(frame, (int(state[0]), int(state[1])), 4, (0, 255, 255), -1)
+    if np.any(measurements):
+        # Exclude the non-measurement value of zero
+        x = max(measurements[0], measurements[2])
+        y = max(measurements[0], measurements[2])
+        if not np.any(tracks):
+            tracks = [tracking.Contact(np.float(x), np.float(y), 0, 0, in_free_space=True, scan_frequency=15)]
+        track = tracks[0]  # Temporary for this intermediate refactor
+        print measurements[:, 0], track.state[:, 0].astype(np.int)
+        cv2.circle(frame, (int(track.state[0]), int(track.state[1])), 4, (0, 255, 255), -1)
+        track.update(measurements)
         
     # show the frame
     cv2.imshow("Video Feed", frame)
